@@ -141,3 +141,13 @@ vite.config.ts.timestamp-*
 
 keys/
 .env
+
+# Ignore local database files
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# (optional) local logs or cache
+logs/
+*.log
