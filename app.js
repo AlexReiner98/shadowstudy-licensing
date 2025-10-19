@@ -86,7 +86,7 @@ router.route('/echo')
         res.status(405).send("Method not allowed")
     });
 
-app.use('/',router);
+app.use('/', router);
 
 app.use((err,req,res,next)=>{
     if(err instanceof SyntaxError && err.status == 400 && 'body' in err)
@@ -114,7 +114,7 @@ app.use((req,res) => {
 //-----------------------------------------Listen------------------------------------------
 //-----------------------------------------------------------------------------------------
 
-app.listen(PORT, (error) => {
+const server = app.listen(PORT, (error) => {
     if(!error)
     {
         console.log("Server successfully running, and app is listenering on port " + PORT);
@@ -124,3 +124,17 @@ app.listen(PORT, (error) => {
         console.log("Error occurred, server can't start", error);
     }
 });
+
+process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    server.close(() => {
+        console.log('HTTP server closed');
+    });
+})
+
+process.on('SIGINT', () => {
+    console.log('SIGINT signal received: closing HTTP server');
+    server.close(() => {
+        console.log('HTTP server closed');
+    });
+})
