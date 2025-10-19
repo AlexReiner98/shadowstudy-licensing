@@ -2,7 +2,11 @@ const express = require('express');
 const app = express();
 const PORT = 3000;
 
-const serverStartTime = Date.now();
+app.set("appVersion", '1.0.0');
+app.set("serverStartTime", Date.now())
+
+
+
 
 app.use(express.json());
 
@@ -19,6 +23,10 @@ app.use((err,req,res,next)=>{
     next(err);
 });
 
+app.use((req,res,next) => {
+    res.status(404).send(`Sorry, no path to ${req.path}`);
+});
+
 app.get('/', (req,res) => {
     res.status(200);
     res.send("Welcome to the root URL of the server");
@@ -29,11 +37,20 @@ app.get('/hello', (req,res) => {
     res.status(200).send("<h1>Hello GFG Learner!</h1>");
 });
 
+app.get('/version', (req,res) => {
+    const version = app.get("appVersion");
+    
+    res.status(200).send({
+        'version':version
+    })
+})
+
 app.get('/health', (req,res) => {
     res.set('Content-Type', 'application/json');
     const health = {
         "ok": true,
-        "uptimeMS": Date.now() - serverStartTime,
+        "uptimeMS": Date.now() - app.get("serverStartTime"),
+        "contentLength": req.headers['content-length']
     }
     res.status(200).send(health);
 });
