@@ -4,6 +4,7 @@ const PORT = 3000;
 
 app.set("appVersion", '1.0.0');
 app.set("serverStartTime", Date.now())
+app.set("maxContentLength", 2000);
 
 app.use(express.json());
 
@@ -46,7 +47,7 @@ router.route('/health')
         res.status(200).send(health);
     })
     .all((req,res) => {
-        res.set('Allow', 'GET, POST');
+        res.set('Allow', 'GET');
         res.status(405).send("Method not allowed")
     });
 
@@ -58,6 +59,16 @@ router.route('/echo')
             return res.status(400).json({
                 error: 'Invalid content type.',
                 message: "Requests to this endpoint must have Content_Type of application/json."
+            })
+        }
+
+        const contentSize = req.headers['content-length'];
+        const maxSize = app.get('maxContentLength')
+        if(contentSize > maxSize)
+        {
+            return res.status(413).json({
+                error: 'Payload too large',
+                message: `Payload must be shorter than ${maxSize} characters.`
             })
         }
 
