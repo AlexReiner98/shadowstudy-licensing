@@ -8,8 +8,74 @@ app.set("serverStartTime", Date.now())
 app.use(express.json());
 
 //---------------------------------------------------------------------
-//--------------------------Middlewear---------------------------------
+//--------------------------Middleware---------------------------------
 //---------------------------------------------------------------------
+
+const router = express.Router();
+
+router.route('/')
+    .get((req,res) => {
+        res.status(200).send("Welcome to the root of the server");
+    })
+    .all((req,res) => {
+        res.set('Allow','GET');
+        res.status(405).send("Method not allowed");
+    });
+
+router.route('/version')
+    .get((req,res) => {
+        res.set('Allow', 'GET');
+        const version = app.get("appVersion");
+        res.status(200).send({
+        'version':version
+        });
+    })
+    .all((req,res) => {
+        res.set('Allow','GET');
+        res.status(405).send("Method not allowed");
+    });
+
+router.route('/health')
+    .get((req, res) => {
+        res.set('Content-Type', 'application/json');
+        const health = {
+            "ok": true,
+            "uptimeMS": Date.now() - app.get("serverStartTime"),
+            "contentLength": req.headers['content-length']
+        }
+        res.status(200).send(health);
+    })
+    .all((req,res) => {
+        res.set('Allow', 'GET, POST');
+        res.status(405).send("Method not allowed")
+    });
+
+router.route('/echo')
+    .post((req,res) => {
+        const contentType = req.headers['content-type'];
+        if(!contentType || !contentType.includes('application/json'))
+        {
+            return res.status(400).json({
+                error: 'Invalid content type.',
+                message: "Requests to this endpoint must have Content_Type of application/json."
+            })
+        }
+
+        res.set('Content-Type', 'application/json');
+        res.status(200).send(
+            {
+                "received": req.body,
+                "received_at": Date.now(),
+                "contentLength": req.headers['content-length']
+            }
+        );
+    })
+    .all((req,res) => {
+        res.set('Allow', 'POST');
+        res.status(405).send("Method not allowed")
+    });
+
+app.use('/',router);
 
 app.use((err,req,res,next)=>{
     if(err instanceof SyntaxError && err.status == 400 && 'body' in err)
@@ -17,73 +83,21 @@ app.use((err,req,res,next)=>{
         console.error('Bad JSON format received:', err.message);
         return res.status(400).json({
             status:400,
-            message: "Invalid JSON format in request body."
+            message: "Invalid JSON format in request body.",
+            error: err
         });
     }
 
     next(err);
 });
 
-app.use((req,res,next) => {
-    res.status(404).send(`Sorry, no path to ${req.path}`);
+app.use((req,res) => {
+    if(req)
+    res.status(404).json({
+        status: 404,
+        message: `Can't find ${req.path} on this server!`
+    });
 });
-
-
-//-------------------------------------------------------------
-//-----------------------Routes--------------------------------
-//-------------------------------------------------------------
-
-//-----------------------GET--------------------
-
-app.get('/', (req,res) => {
-    res.status(200);
-    res.send("Welcome to the root URL of the server");
-});
-
-app.get('/hello', (req,res) => {
-    res.set('Content-Type', 'text/html');
-    res.status(200).send("<h1>Hello GFG Learner!</h1>");
-});
-
-app.get('/version', (req,res) => {
-    const version = app.get("appVersion");
-    
-    res.status(200).send({
-        'version':version
-    })
-})
-
-app.get('/health', (req,res) => {
-    res.set('Content-Type', 'application/json');
-    const health = {
-        "ok": true,
-        "uptimeMS": Date.now() - app.get("serverStartTime"),
-        "contentLength": req.headers['content-length']
-    }
-    res.status(200).send(health);
-});
-
-//-------------------------POST-----------------------------
-
-app.post('/echo', (req,res) => {
-    const contentType = req.headers['content-type'];
-    if(!contentType || !contentType.includes('application/json'))
-    {
-        return res.status(400).json({
-            error: 'Invalid content type.',
-            message: "Requests to this endpoint must have Content_Type of application/json."
-        })
-    }
-
-    res.set('Content-Type', 'application/json');
-    res.status(200).send(
-        {
-            "received": req.body,
-            "received_at": Date.now()
-        }
-    );
-});
-
 
 //-----------------------------------------------------------------------------------------
 //-----------------------------------------Listen------------------------------------------
