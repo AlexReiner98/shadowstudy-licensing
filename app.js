@@ -2,6 +2,10 @@ const express = require('express');
 const app = express();
 const PORT = 3000;
 
+const env = process.env.NODE_ENV;
+if(env === 'development') console.log("Running in development env");
+else if(env === 'production') console.log("Running in production env");
+
 app.set("appVersion", '1.0.0');
 app.set("serverStartTime", Date.now())
 app.set("maxContentLength", 2000);
@@ -117,7 +121,7 @@ app.use((req,res) => {
 const server = app.listen(PORT, (error) => {
     if(!error)
     {
-        console.log("Server successfully running, and app is listenering on port " + PORT);
+        console.log("Server successfully running, and app is listening on port " + PORT);
     }
     else
     {
