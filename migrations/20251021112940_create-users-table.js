@@ -46,7 +46,6 @@ exports.up = function(knex) {
   })
 
   .createTable('magic', tbl => {
-    tbl.increments() //id field
     tbl.text('token')
       .notNullable()
       .unique()
@@ -68,5 +67,6 @@ exports.down = function(knex) {
   return knex.schema
   .dropTableIfExists('users')
   .dropTableIfExists('subscriptions')
-  .dropTableIfExists('activations');
+  .dropTableIfExists('activations')
+  .dropTableIfExists('magic');
 };

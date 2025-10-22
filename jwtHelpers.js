@@ -19,7 +19,8 @@ async function signJWT(payload, ttlSec)
 
 async function verifyJWT(token, expectedAud)
 {
-    const { payload } = await jose.verifyJWT(token, SIGNING_SECRET, {
+    const secret = new TextEncoder().encode(process.env.SIGNING_SECRET)
+    const { payload } = await jose.jwtVerify(token, secret, {
         issuer: process.env.ISSUER,
         audience: expectedAud
     });

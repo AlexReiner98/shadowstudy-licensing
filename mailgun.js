@@ -15,12 +15,9 @@ async function SendSimpleMessage(name, email, url) {
       from: "Mailgun Sandbox <postmaster@sandboxb6a6fda3f9614bf49f138c7adfdc400c.mailgun.org>",
       //to: ["Alex Reiner <alexreiner98@gmail.com>"],
       to: [`${name} <${email}>`],
-      subject: `Hello ${name}`,
+      subject: `Hi ${name}`,
       text: `Hi ${name}, please click the link to verify your shadow study account: ${url}`,
     });
-    console.log(data); // logs response data
-    console.log(`one time token issued: ${token}`);
-    return token;
 
   } catch (error) {
     console.log(error); //logs any error
