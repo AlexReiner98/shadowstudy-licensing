@@ -110,7 +110,14 @@ router.route('/signup')
         )
 
         const expiresAt = nowSec() + process.env.MAGIC_TTL_SEC;
-        db('magic').insert({jti, email,fingerprint,expiresAt})
+        const [id] = await db('magic').insert({
+            token: jti, 
+            email: email, 
+            fingerprint: 
+            fingerprint, 
+            expires_at: expiresAt
+        });
+        console.log(id)
 
         const encoded = encodeURIComponent(token);
         const url = `localhost:3000/verify?token=${encoded}`;
@@ -121,7 +128,7 @@ router.route('/signup')
         {
             "status": "Ok",
             "message": `Verification email sent to ${email}`,
-            "token": token
+            "token": encoded
         });
     })
     .all((req,res) => {
