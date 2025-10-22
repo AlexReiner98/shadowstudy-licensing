@@ -1,4 +1,9 @@
+//import { EnsureContentSize,EnsureJsonContent } from './httpHelpers.js';
+
 const express = require('express');
+const httpHelpers = require('./httpHelpers.js');
+const mailGun = require('./mailgun.js');
+const { default: Mailgun } = require('mailgun.js');
 const app = express();
 const PORT = 3000;
 
@@ -57,24 +62,12 @@ router.route('/health')
 
 router.route('/echo')
     .post((req,res) => {
-        const contentType = req.headers['content-type'];
-        if(!contentType || !contentType.includes('application/json'))
-        {
-            return res.status(400).json({
-                error: 'Invalid content type.',
-                message: "Requests to this endpoint must have Content_Type of application/json."
-            })
-        }
+        const contentTypeError = httpHelpers.EnsureJson(req,res);
+        if(contentTypeError) return contentTypeError;
 
-        const contentSize = req.headers['content-length'];
-        const maxSize = app.get('maxContentLength')
-        if(contentSize > maxSize)
-        {
-            return res.status(413).json({
-                error: 'Payload too large',
-                message: `Payload must be shorter than ${maxSize} characters.`
-            })
-        }
+        const maxSize = app.get('maxContentLength');
+        const contentSizeError = httpHelpers.EnsureSize(req,res,maxSize);
+        if(contentSizeError) return contentSizeError;
 
         res.set('Content-Type', 'application/json');
         res.status(200).send(
@@ -88,6 +81,34 @@ router.route('/echo')
     .all((req,res) => {
         res.set('Allow', 'POST');
         res.status(405).send("Method not allowed")
+    });
+
+router.route('/signup')
+    .post((req,res) => {
+        const contentTypeError = httpHelpers.EnsureJson(req,res);
+        if(contentTypeError) return contentTypeError;
+
+        const maxSize = app.get('maxContentLength');
+        const contentSizeError = httpHelpers.EnsureSize(req,res,maxSize);
+        if(contentSizeError) return contentSizeError;
+
+        const fieldError = httpHelpers.EnsureFields(req.body, res, ['email', 'fingerprint']);
+        if(fieldError) return fieldError;
+
+        const email = req.body['email'];
+        const fingerprint = req.body['fingerprint'];
+
+        //check if db contains email, if so, compare machine fingerprint
+
+        //if no email associated, send verification email
+        mailGun.SendSimpleMessage('Alex', email);
+
+        res.set('Content-Type', 'application/json');
+        res.status(200).send(
+        {
+            "status": "Ok",
+            "message": `Verification email sent to ${email}`
+        });
     });
 
 app.use('/', router);
