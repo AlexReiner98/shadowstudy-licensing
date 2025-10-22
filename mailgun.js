@@ -3,13 +3,12 @@ require('dotenv').config();
 const formData = require('form-data');
 const Mailgun = require('mailgun.js');
 
-async function SendSimpleMessage(name, email) {
+async function SendSimpleMessage(name, email, url) {
   const mailgun = new Mailgun(formData);
+
   const mg = mailgun.client({
     username: "api",
     key: process.env.MG_API_KEY,
-    // When you have an EU-domain, you must specify the endpoint:
-    // url: "https://api.eu.mailgun.net"
   });
   try {
     const data = await mg.messages.create("sandboxb6a6fda3f9614bf49f138c7adfdc400c.mailgun.org", {
@@ -17,10 +16,12 @@ async function SendSimpleMessage(name, email) {
       //to: ["Alex Reiner <alexreiner98@gmail.com>"],
       to: [`${name} <${email}>`],
       subject: `Hello ${name}`,
-      text: `Congratulations ${name}, you just sent an email with Mailgun! You are truly awesome!`,
+      text: `Hi ${name}, please click the link to verify your shadow study account: ${url}`,
     });
-
     console.log(data); // logs response data
+    console.log(`one time token issued: ${token}`);
+    return token;
+
   } catch (error) {
     console.log(error); //logs any error
   }

@@ -34,6 +34,7 @@ exports.up = function(knex) {
     tbl.text('machine_key_hash')
         .notNullable()
         .unique()
+    tbl.text('one_time_token')
     
     // foreign key to subscriptions table
     tbl.integer('subscription_id') 
@@ -42,6 +43,20 @@ exports.up = function(knex) {
         .inTable('subscriptions')
         .onDelete('CASCADE')
         .onUpdate('CASCADE')
+  })
+
+  .createTable('magic', tbl => {
+    tbl.increments() //id field
+    tbl.text('token')
+      .notNullable()
+      .unique()
+    tbl.text('email')
+      .notNullable()
+    tbl.text('fingerprint')
+      .notNullable()
+    tbl.date('expires_at')
+      .notNullable()
+    tbl.date('used_at')
   })
 };
 

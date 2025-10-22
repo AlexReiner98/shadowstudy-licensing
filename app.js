@@ -4,6 +4,7 @@ const express = require('express');
 const httpHelpers = require('./httpHelpers.js');
 const mailGun = require('./mailgun.js');
 const { default: Mailgun } = require('mailgun.js');
+const { signJWT, nowSec } = require('./jwtHelpers.js');
 const app = express();
 const PORT = 3000;
 
@@ -16,6 +17,8 @@ app.set("serverStartTime", Date.now())
 app.set("maxContentLength", 2000);
 
 app.use(express.json());
+
+const db = require('./db');
 
 //---------------------------------------------------------------------
 //--------------------------Middleware---------------------------------
@@ -84,7 +87,7 @@ router.route('/echo')
     });
 
 router.route('/signup')
-    .post((req,res) => {
+    .post(async (req,res) => {
         const contentTypeError = httpHelpers.EnsureJson(req,res);
         if(contentTypeError) return contentTypeError;
 
@@ -100,15 +103,40 @@ router.route('/signup')
 
         //check if db contains email, if so, compare machine fingerprint
 
-        //if no email associated, send verification email
-        mailGun.SendSimpleMessage('Alex', email);
+        //if no email associated, sign jwt
+        const jti = crypto.randomUUID();
+        const token = await signJWT({sub: email, aud: process.env.MAGIC_AUD, jti, fp: fingerprint},
+            `${process.env.MAGIC_TTL_SEC} seconds`
+        )
+
+        const expiresAt = nowSec() + process.env.MAGIC_TTL_SEC;
+        db('magic').insert({jti, email,fingerprint,expiresAt})
+
+        const encoded = encodeURIComponent(token);
+        const url = `localhost:3000/verify?token=${encoded}`;
+        //mailGun.SendSimpleMessage('Alex', email, url);
 
         res.set('Content-Type', 'application/json');
         res.status(200).send(
         {
             "status": "Ok",
-            "message": `Verification email sent to ${email}`
+            "message": `Verification email sent to ${email}`,
+            "token": token
         });
+    })
+    .all((req,res) => {
+        res.set('Allow', 'POST');
+        res.status(405).send("Method not allowed")
+    });
+
+router.route('/verify')
+    .get((req,res) => {
+        const token = String(req.query.token || "");
+
+    })
+    .all((req,res) => {
+        res.set('Allow', 'GET');
+        res.status(405).send("Method not allowed")
     });
 
 app.use('/', router);
