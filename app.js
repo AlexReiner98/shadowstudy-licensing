@@ -158,19 +158,6 @@ router.route('/signup')
         const name = req.body['name'];
         const email = req.body['email'];
         const deviceId = req.body['device_id'];
-
-        /*
-        const [userId] = await db('users').insert({
-            email: email
-        });
-
-        const [activationId] = await db('activations').insert(
-            {
-                device_id:deviceId,
-                user_id:userId
-            }
-        )
-            */
         
         const jti = crypto.randomUUID();
         const token = await signJWT({aud: process.env.MAGIC_AUD, email:email,device_id:deviceId, jti},
@@ -197,7 +184,7 @@ router.route('/signup')
     })
     .all((req,res) => {
         res.set('Allow', 'POST');
-        res.status(405).send("Method not allowed")
+        res.status(405).send("Method not allowed");
     });
 
 router.route('/verify')
@@ -208,7 +195,7 @@ router.route('/verify')
             payload = await verifyJWT(token, process.env.MAGIC_AUD);
         } catch (err){
             console.log(err);
-            res.status(400).send("Token invalid.")
+            res.status(400).send("Token invalid.");
         }
 
         const jti = String(payload.jti || "");
@@ -224,27 +211,57 @@ router.route('/verify')
         if(!row) return res.status(400).send('Token not recognized.');
         if(row.used_at) return res.status(400).send('Token already used.');
         if(row.expires_at < nowSec()) return res.status(400).send("Token expired.");
-
         
         //update used_at
         await db('magic')
             .where('token', jti)
             .update({used_at: nowSec()});
 
-        //create user with email
-            const [userId] = await db('users').insert({
-            email: email
-        });
+        //find user email if it exists
+        const userRow = await db('users')
+            .where('email', email)
+            .first();
+        
+        let userId;
+        //if not, add it
+        if(!userRow)
+        {
+            [userId] = await db('users').insert({
+                email: email
+            });
+        }
+        else userId = userRow.id;
 
-        const [activationId] = await db('activations').insert(
+        //find this user's activation if it exists
+        const activationRow = await db('activations')
+            .where('user_id', userId)
+            .first();
+        
+        let activationId;
+        //if not, add it
+        if(!activationRow)
+        {
+            [activationId] = await db('activations').insert(
             {
                 device_id:deviceId,
                 user_id:userId
+            });
+        } 
+        else 
+        {
+            //update the device id
+            if(activationRow.device_id !== deviceId)
+            {
+                await db('activations').update({
+                    device_id:deviceId,
+                    updated_at:nowSec()
+                })
             }
-        )
+        }
+
         //create new offline token
 
-        return res.status(200).send('Email verified!');
+        return res.status(200).send('Email verified and device linked');
     })
     .all((req,res) => {
         res.set('Allow', 'GET');
