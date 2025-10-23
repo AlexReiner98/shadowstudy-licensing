@@ -3,56 +3,39 @@
  * @returns { Promise<void> }
  */
 exports.up = function(knex) {
-  return knex.schema.createTable('users', tbl => {
+  return knex.schema
+  
+  //users table (contains emails that represent users, ties together activations, licenses and tokens)
+  .createTable('users', tbl => {
     tbl.increments() // 'id' field
     tbl.text('email',128)
         .notNullable()
         .unique()
     tbl.timestamps(true,true)
   })
-  .createTable('subscriptions', tbl => {
+
+  //activations table (contains device id used to validate user identity on plugin launch)
+  .createTable('activations', tbl => {
     tbl.increments() //id field
     tbl.timestamps(true,true)
-    tbl.text('product_name')
+    tbl.text('device_id')
         .notNullable()
-        .defaultTo('shadow-study')
-    tbl.integer('seat_count')
-        .notNullable()
-        .defaultTo(1)
+        .unique()
     
-    // foreign key to users table
-    tbl.integer('user_id')
+    // foreign key to users
+    tbl.integer('user_id') 
         .unsigned()
         .references('id')
         .inTable('users')
         .onDelete('CASCADE')
         .onUpdate('CASCADE')
   })
-  .createTable('activations', tbl => {
-    tbl.increments() //id field
-    tbl.timestamps(true,true)
-    tbl.text('machine_key_hash')
-        .notNullable()
-        .unique()
-    tbl.text('one_time_token')
-    
-    // foreign key to subscriptions table
-    tbl.integer('subscription_id') 
-        .unsigned()
-        .references('id')
-        .inTable('subscriptions')
-        .onDelete('CASCADE')
-        .onUpdate('CASCADE')
-  })
 
+  //magic link table (contains temporary tokens to tie activation to user through email)
   .createTable('magic', tbl => {
     tbl.text('token')
       .notNullable()
       .unique()
-    tbl.text('email')
-      .notNullable()
-    tbl.text('fingerprint')
-      .notNullable()
     tbl.date('expires_at')
       .notNullable()
     tbl.date('used_at')
@@ -66,7 +49,6 @@ exports.up = function(knex) {
 exports.down = function(knex) {
   return knex.schema
   .dropTableIfExists('users')
-  .dropTableIfExists('subscriptions')
   .dropTableIfExists('activations')
   .dropTableIfExists('magic');
 };

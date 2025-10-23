@@ -27,7 +27,6 @@ function EnsureSize(req, res, maxSize)
 
 function EnsureFields(body, res, fields)
 {
-    console.log(body);
     for(let i = 0; i < fields.length; i++)
     {
         const key = fields[i];

@@ -86,6 +86,63 @@ router.route('/echo')
         res.status(405).send("Method not allowed")
     });
 
+router.route('/device_auth')
+    .post(async (req,res) => {
+        const contentTypeError = httpHelpers.EnsureJson(req,res);
+        if(contentTypeError) return contentTypeError;
+
+        const maxSize = app.get('maxContentLength');
+        const contentSizeError = httpHelpers.EnsureSize(req,res,maxSize);
+        if(contentSizeError) return contentSizeError;
+
+        const fieldError = httpHelpers.EnsureFields(req.body, res, ['device_id']);
+        if(fieldError) return fieldError;
+
+        const deviceId = req.body['device_id'];
+
+        //check activations table
+        const deviceRow = await db('activations')
+            .where('device_id', deviceId)
+            .first();
+        
+        res.set('Content-Type', 'application/json');
+
+        if(!deviceRow) // this device needs to be linked
+        {
+            return res.status(200).json({
+                "status":"no_match",
+                "token":"null"
+            })
+        }
+
+        if(deviceRow.valid) //this device is linked and license is valid ==> return success, status:ok, token: new jwt
+        {
+            //sign token
+            //const jti = randomUUID();
+            //const token = await signJWT({aud: process.env.CLIENT_AUD, jti},
+            //`${process.env.OFFLINE_TTL_SEC} seconds`);
+            const issuedAt = nowSec();
+            const expiresAt = nowSec() + process.env.OFFLINE_TTL_SEC;
+
+            const token = `{{\r\n    \"device_id\": \"${deviceId}\",\r\n    \"token_issued_at\": \"${issuedAt}\",\r\n    \"token_expires_at\": \"${expiresAt}\"\r\n}}`
+            return res.status(200).json({
+                "status":"ok",
+                "token":token
+            })
+        }
+        else //this device is linked but license is not valid ==> return success + status:invalid_license, token: null
+        {
+            return res.status(200).json({
+                "status":"invalid_license",
+                "token":"null"
+            })
+        }
+    })
+    .all((req,res) => {
+        res.set('Allow', 'POST');
+        res.status(405).send("Method not allowed")
+    });
+
 router.route('/signup')
     .post(async (req,res) => {
         const contentTypeError = httpHelpers.EnsureJson(req,res);
@@ -95,40 +152,46 @@ router.route('/signup')
         const contentSizeError = httpHelpers.EnsureSize(req,res,maxSize);
         if(contentSizeError) return contentSizeError;
 
-        const fieldError = httpHelpers.EnsureFields(req.body, res, ['name', 'email', 'fingerprint']);
+        const fieldError = httpHelpers.EnsureFields(req.body, res, ['name', 'email', 'device_id']);
         if(fieldError) return fieldError;
 
         const name = req.body['name'];
         const email = req.body['email'];
-        const fingerprint = req.body['fingerprint'];
+        const deviceId = req.body['device_id'];
 
-        //check if db contains email, if so, compare machine fingerprint
+        /*
+        const [userId] = await db('users').insert({
+            email: email
+        });
 
-        //if no email associated, sign jwt
+        const [activationId] = await db('activations').insert(
+            {
+                device_id:deviceId,
+                user_id:userId
+            }
+        )
+            */
+        
         const jti = crypto.randomUUID();
-        const token = await signJWT({email: email, aud: process.env.MAGIC_AUD, jti, fp: fingerprint},
+        const token = await signJWT({aud: process.env.MAGIC_AUD, email:email,device_id:deviceId, jti},
             `${process.env.MAGIC_TTL_SEC} seconds`
         )
 
         const expiresAt = nowSec() + process.env.MAGIC_TTL_SEC;
-        const [id] = await db('magic').insert({
+        await db('magic').insert({
             token: jti, 
-            email: email, 
-            fingerprint: 
-            fingerprint, 
-            expires_at: expiresAt
+            expires_at: expiresAt,
         });
-        console.log(id)
 
         const encoded = encodeURIComponent(token);
         const url = `localhost:3000/verify?token=${encoded}`;
-        mailGun.SendSimpleMessage(name, email, url);
+        //mailGun.SendSimpleMessage(name, email, url);
 
         res.set('Content-Type', 'application/json');
         res.status(200).send(
         {
             "status": "Ok",
-            "message": `Verification email sent to ${email}`,
+            "message": `Verification email sent to < ${name} ${email} >`,
             "token": encoded
         });
     })
@@ -145,14 +208,14 @@ router.route('/verify')
             payload = await verifyJWT(token, process.env.MAGIC_AUD);
         } catch (err){
             console.log(err);
-            res.status(400).send("Token expired.")
+            res.status(400).send("Token invalid.")
         }
 
         const jti = String(payload.jti || "");
         const email = String(payload.email || "");
-        const fingerprint = String(payload.fp || "");
-        console.log(payload);
-        if(!jti || !email || !fingerprint) return res.status(400).send("Invalid token payload");
+        const deviceId = String(payload.device_id || "");
+
+        if(!jti) return res.status(400).send("Invalid token payload");
 
         const row = db('magic')
             .where('token', jti)
@@ -162,12 +225,24 @@ router.route('/verify')
         if(row.used_at) return res.status(400).send('Token already used.');
         if(row.expires_at < nowSec()) return res.status(400).send("Token expired.");
 
-        const updateUsedAt = await db('magic')
+        
+        //update used_at
+        await db('magic')
             .where('token', jti)
             .update({used_at: nowSec()});
 
-        //perform license check
-        console.log("license check");
+        //create user with email
+            const [userId] = await db('users').insert({
+            email: email
+        });
+
+        const [activationId] = await db('activations').insert(
+            {
+                device_id:deviceId,
+                user_id:userId
+            }
+        )
+        //create new offline token
 
         return res.status(200).send('Email verified!');
     })
