@@ -22,6 +22,8 @@ app.use(express.json());
 const db = require('./db');
 const { readFileSync } = require('fs');
 
+const waiters = new Map();
+
 //---------------------------------------------------------------------
 //--------------------------Middleware---------------------------------
 //---------------------------------------------------------------------
@@ -132,9 +134,7 @@ router.route('/device_auth')
                 .setAudience(process.env.CLIENT_AUD)
                 .setExpirationTime(`${process.env.OFFLINE_TTL_SEC} seconds`)
                 .sign(privateKey);
-                
 
-            //const token = `{{\r\n    \"device_id\": \"${deviceId}\",\r\n    \"token_issued_at\": \"${issuedAt}\",\r\n    \"token_expires_at\": \"${expiresAt}\"\r\n}}`
             return res.status(200).json({
                 "status":"ok",
                 "device_id": deviceId,
@@ -169,17 +169,18 @@ router.route('/signup')
         const name = req.body['name'];
         const email = req.body['email'];
         const deviceId = req.body['device_id'];
-        
-        const jti = crypto.randomUUID();
-        const token = await signJWT({aud: process.env.MAGIC_AUD, email:email,device_id:deviceId, jti},
-            `${process.env.MAGIC_TTL_SEC} seconds`
-        )
 
+        const jti = crypto.randomUUID();
         const expiresAt = nowSec() + process.env.MAGIC_TTL_SEC;
-        await db('magic').insert({
+        const [id] = await db('magic').insert({
             token: jti, 
             expires_at: expiresAt,
         });
+        
+
+        const token = await signJWT({aud: process.env.MAGIC_AUD, email:email,device_id:deviceId, jti, magic_id:id},
+            `${process.env.MAGIC_TTL_SEC} seconds`
+        )
 
         const encoded = encodeURIComponent(token);
         const url = `localhost:3000/verify?token=${encoded}`;
@@ -190,12 +191,60 @@ router.route('/signup')
         {
             "status": "Ok",
             "message": `Verification email sent to < ${name} ${email} >`,
+            "status_id": id,
             "token": encoded
         });
     })
     .all((req,res) => {
         res.set('Allow', 'POST');
         res.status(405).send("Method not allowed");
+    });
+
+
+router.route('/activation/:id/await')
+    .get(async (req,res) => {
+        const timeoutMs = Math.min(Number(req.query.timeout ?? 30000), 60000);
+        const id = req.params.id;
+        const row = await db('magic')
+            .where('id', id)
+            .first();
+
+        if(!row) return res.status(404).json({error: "not_found"});
+
+        // if already decided, return immediately
+        if(row.status !== "pending" || Date.now() > row.expires_at){
+            var status = row.status;
+            if(Date.now() > row.expires_at && row.status === "pending")
+            {
+                await db('magic')
+                    .where('id', id)
+                    .update({status:"expired"});
+                status = "expired";
+            }
+            console.log(`returning json: {status: ${status}}`);
+            return res.status(200).json({status: status});
+        }
+
+        //register waiter
+        const set = waiters.get(id) ?? new Set();
+        set.add(res);
+        waiters.set(id, set);
+
+        //safety: close after timeout
+        const t = setTimeout(() => {
+            set.delete(res);
+            res.json({status: "pending"});
+        },timeoutMs);
+
+        //if client disconnects
+        req.on("close", () => {
+            clearTimeout(t);
+            set.delete(res);
+        });
+    })
+    .all((req,res) => {
+        res.set('Allow', 'GET');
+        res.status(405).send("Method not allowed")
     });
 
 router.route('/verify')
@@ -212,10 +261,11 @@ router.route('/verify')
         const jti = String(payload.jti || "");
         const email = String(payload.email || "");
         const deviceId = String(payload.device_id || "");
+        const magicId = String(payload.magic_id || "");
 
-        if(!jti) return res.status(400).send("Invalid token payload");
+        if(!jti || !email || !deviceId || !magicId) return res.status(400).send("Invalid token payload");
 
-        const row = db('magic')
+        const row = await db('magic')
             .where('token', jti)
             .first();
 
@@ -226,7 +276,7 @@ router.route('/verify')
         //update used_at
         await db('magic')
             .where('token', jti)
-            .update({used_at: nowSec()});
+            .update({used_at: nowSec(), status:"verified"});
 
         //find user email if it exists
         const userRow = await db('users')
@@ -248,11 +298,11 @@ router.route('/verify')
             .where('user_id', userId)
             .first();
         
-        let activationId;
         //if not, add it
         if(!activationRow)
         {
-            [activationId] = await db('activations').insert(
+            await db('activations')
+            .insert(
             {
                 device_id:deviceId,
                 user_id:userId
@@ -263,12 +313,24 @@ router.route('/verify')
             //update the device id
             if(activationRow.device_id !== deviceId)
             {
-                await db('activations').update({
-                    device_id:deviceId,
-                    updated_at:nowSec()
+                await db('activations')
+                .where("user_id", userId)
+                .update({
+                    device_id:deviceId
                 })
             }
         }
+
+        const set = waiters.get(magicId);
+        if(!set) return;
+        for(const res of set)
+        {
+            const row = await db('magic')
+                .where('id', magicId)
+                .first();
+            res.json({ status: row.status ?? "expired"});
+        }
+        waiters.delete(magicId);
 
         return res.status(200).send('Email verified and device linked');
     })
@@ -301,9 +363,13 @@ app.use((req,res) => {
     });
 });
 
+
+
 //-----------------------------------------------------------------------------------------
 //-----------------------------------------Listen------------------------------------------
 //-----------------------------------------------------------------------------------------
+
+
 
 const server = app.listen(PORT, (error) => {
     if(!error)

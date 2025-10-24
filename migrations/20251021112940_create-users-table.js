@@ -51,12 +51,16 @@ exports.up = function(knex) {
 
   //magic link table (contains temporary tokens to tie activation to user through email)
   .createTable('magic', tbl => {
+    tbl.increments()
     tbl.text('token')
       .notNullable()
       .unique()
     tbl.date('expires_at')
       .notNullable()
     tbl.date('used_at')
+    tbl.text('status')
+      .notNullable()
+      .defaultTo('pending')
   })
 };
 
