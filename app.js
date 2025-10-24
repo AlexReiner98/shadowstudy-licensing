@@ -5,6 +5,7 @@ const httpHelpers = require('./httpHelpers.js');
 const mailGun = require('./mailgun.js');
 const { default: Mailgun } = require('mailgun.js');
 const { signJWT, nowSec, verifyJWT } = require('./jwtHelpers.js');
+const {SignJWT, exportJWK, generateKeyPair, decodeProtectedHeader , importPKCS8} = require('jose');
 const app = express();
 const PORT = 3000;
 
@@ -19,6 +20,7 @@ app.set("maxContentLength", 2000);
 app.use(express.json());
 
 const db = require('./db');
+const { readFileSync } = require('fs');
 
 //---------------------------------------------------------------------
 //--------------------------Middleware---------------------------------
@@ -114,19 +116,28 @@ router.route('/device_auth')
                 "token":"null"
             })
         }
+        deviceRow.valid = true;
 
         if(deviceRow.valid) //this device is linked and license is valid ==> return success, status:ok, token: new jwt
         {
-            //sign token
-            //const jti = randomUUID();
-            //const token = await signJWT({aud: process.env.CLIENT_AUD, jti},
-            //`${process.env.OFFLINE_TTL_SEC} seconds`);
-            const issuedAt = nowSec();
-            const expiresAt = nowSec() + process.env.OFFLINE_TTL_SEC;
+            const privatePem = readFileSync("keys/rsa-private.pem", "utf8");
+            const kid = JSON.parse(readFileSync("keys/jwk.json", "utf8")).kid;
 
-            const token = `{{\r\n    \"device_id\": \"${deviceId}\",\r\n    \"token_issued_at\": \"${issuedAt}\",\r\n    \"token_expires_at\": \"${expiresAt}\"\r\n}}`
+            const privateKey = await importPKCS8(privatePem, "RS256");
+
+            const token = await new SignJWT({"device_id": deviceId})
+                .setProtectedHeader({alg: 'RS256', kid: kid})
+                .setIssuedAt()
+                .setIssuer(process.env.ISSUER)
+                .setAudience(process.env.CLIENT_AUD)
+                .setExpirationTime(`${process.env.OFFLINE_TTL_SEC} seconds`)
+                .sign(privateKey);
+                
+
+            //const token = `{{\r\n    \"device_id\": \"${deviceId}\",\r\n    \"token_issued_at\": \"${issuedAt}\",\r\n    \"token_expires_at\": \"${expiresAt}\"\r\n}}`
             return res.status(200).json({
                 "status":"ok",
+                "device_id": deviceId,
                 "token":token
             })
         }
@@ -258,8 +269,6 @@ router.route('/verify')
                 })
             }
         }
-
-        //create new offline token
 
         return res.status(200).send('Email verified and device linked');
     })
