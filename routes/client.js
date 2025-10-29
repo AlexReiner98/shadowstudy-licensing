@@ -10,6 +10,16 @@ const { readFileSync } = require('fs');
 
 const router = express.Router();
 const waiters = new Map();
+const subscriptionWaiters = new Map();
+
+router.route('/purchase')
+    .get((req, res) => {
+        res.redirect('https://alexreinerconsulting.lemonsqueezy.com/buy/bb2e9ac9-60ea-4ddb-8c1c-7a82854e68b7');
+    })
+    .all((req,res) => {
+        res.set('Allow', 'GET');
+        res.status(405).message('Method not allowed.')
+    })
 
 router.route('/device_auth')
     .post(async (req,res) => {
@@ -41,8 +51,19 @@ router.route('/device_auth')
 
         const subscription = await db('subscriptions as s')
             .where('s.user_id', row.user_id)
-            .andWhere('s.status', "on_trial")
+            .andWhere('s.status', "on_trial" || "active")
             .first();
+
+        let subscriptionId;
+        if(!subscription) [subscriptionId] = await db('subscriptions as s')
+            .insert({
+                "status": "pending",
+                "seats": 1,
+                "user_id": row.user_id
+                });
+        else subscriptionId = subscription.id;
+        
+        console.log("subscription id: " + subscriptionId);
         
         const result = await db('activations as a')
         .where('a.user_id', row.user_id)
@@ -71,7 +92,7 @@ router.route('/device_auth')
 
             return res.status(200).json({
                 "status":"ok",
-                "device_id": deviceId,
+                "subscription_id": subscriptionId,
                 "token":token
             })
         }
@@ -80,6 +101,7 @@ router.route('/device_auth')
             console.log("not enough seats")
             return res.status(200).json({
                 "status":"invalid_license",
+                "subscription_id": subscriptionId,
                 "token":"null"
             })
         }
@@ -182,6 +204,44 @@ router.route('/activation/:id/await')
         res.status(405).send("Method not allowed")
     });
 
+router.route('/subscription/:id/await')
+    .get(async (req,res) => {
+        const timeoutMs = Math.min(Number(req.query.timeout ?? 30000), 60000);
+        const id = req.params.id;
+        const row = await db('subscriptions')
+            .where('id', id)
+            .first();
+
+        if(!row) return res.status(404).json({error: "not_found"});
+
+        // if already decided, return immediately
+        if(row.status !== "pending"){
+            console.log(`returning json: {status: ${row.status}}`);
+            return res.status(200).json({'status': row.status});
+        }
+
+        //register waiter
+        const set = subscriptionWaiters.get(id) ?? new Set();
+        set.add(res);
+        subscriptionWaiters.set(id, set);
+
+        //safety: close after timeout
+        const t = setTimeout(() => {
+            set.delete(res);
+            res.json({status: "pending"});
+        },timeoutMs);
+
+        //if client disconnects
+        req.on("close", () => {
+            clearTimeout(t);
+            set.delete(res);
+        });
+    })
+    .all((req,res) => {
+        res.set('Allow', 'GET');
+        res.status(405).send("Method not allowed")
+    });
+
 router.route('/verify')
     .get(async (req,res) => {
         const token = String(req.query.token || "");
@@ -205,8 +265,8 @@ router.route('/verify')
             .first();
 
         if(!row) return res.status(400).send('Token not recognized.');
-        //if(row.used_at) return res.status(400).send('Token already used.');
-        //if(row.expires_at < nowSec()) return res.status(400).send("Token expired.");
+        if(row.used_at) return res.status(400).send('Token already used.');
+        if(row.expires_at < nowSec()) return res.status(400).send("Token expired.");
         
         //update used_at
         await db('magic')
@@ -276,4 +336,4 @@ router.route('/verify')
         res.status(405).send("Method not allowed")
     });
 
-    module.exports = router;
+    module.exports = {router, subscriptionWaiters};

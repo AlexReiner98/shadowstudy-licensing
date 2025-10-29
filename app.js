@@ -17,7 +17,7 @@ app.set("serverStartTime", Date.now())
 
 app.use(lemonRouter);
 app.use(express.json());
-app.use(clientRouter);
+app.use(clientRouter.router);
 
 //---------------------------------------------------------------------
 //--------------------------Middleware---------------------------------

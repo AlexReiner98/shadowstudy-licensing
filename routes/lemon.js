@@ -1,12 +1,9 @@
 const express = require("express");
 const crypto = require("crypto");
 const db = require("../db");
-const httpHelpers = require("../httpHelpers");
-const { stat } = require("fs");
+
 
 const router = express.Router();
-
-const subWaiters = new Map();
 
 router.post(
   "/webhooks/lemon",
@@ -14,6 +11,7 @@ router.post(
   express.raw({ type: "application/json" }),
   async (req, res) => {
     try {
+
       const signature = req.get("X-Signature") || "";
       const eventName = req.get("X-Event-Name") || "";
       const secret = process.env.LS_WEBHOOK_SECRET || "";
@@ -47,7 +45,7 @@ router.post(
         return res.status(417).send("Mising email or status");
       }
       
-
+      let subscriptionId;
       switch (eventName) {
         case "subscription_created":
           //check if email already exists
@@ -68,16 +66,33 @@ router.post(
             user_id = emailRow.id;
           }
 
-          console.log('status' + status);
-          console.log('seats:'+1);
-          console.log('userid' + user_id);
+          
+          //see if a pending subscription already exists
+          const subRow = await db('subscriptions as s')
+            .where('s.user_id', user_id)
+            .first();
+          
+          if(subRow)
+          {
+            subscriptionId = subRow.id;
+            //update subscription row
+            await db('subscriptions as s')
+              .where('s.id', subscriptionId)
+              .first()
+              .update({
+                'status':status,
+                'seats':1
+              })
+          }
+          else{
           //create a new subscription row tied to email
           [subscriptionId] = await db('subscriptions')
             .insert({
-              'status': status,
+              'status':status,
               'seats':1,
-              'user_id': user_id
-            });
+              'user_id':user_id
+            }); 
+          }
             
           console.log("🔔 created:", payload?.data?.id);
           break;
@@ -91,58 +106,15 @@ router.post(
           console.log("ℹ️ ignored:", eventName);
       }
 
-      return res.sendStatus(200);
+      
+
+      return res.status(200).send('Email verified and device linked');
+
     } catch (err) {
       console.error("Webhook error:", err);
       return res.status(500).send("Webhook handler error");
     }
   }
 );
-
-router.route('/subscription/:user_id/await')
-    .get(async (req,res) => {
-        const timeoutMs = Math.min(Number(req.query.timeout ?? 30000), 60000);
-        const user_id = req.params.user_id;
-        const row = await db('subscriptions')
-            .where('user_id', user_id);
-
-        //if(!row) return res.status(404).json({error: "not_found"});
-
-        // if already decided, return immediately
-        if(row && Date.now() > row.expires_at)
-        {
-            var status = row.status;
-            await db('subscriptions')
-                .where('user_id', user_id)
-                .update({status:"expired"});
-            console.log(`returning json: {status: ${status}}`);
-            return res.status(200).json({status: status});
-        }
-        else if(row &&(row.status === "on_trial" || row.status === "active")){
-            console.log(`returning json: {status: ${status}}`);
-            return res.status(200).json({status: status});
-        }
-
-        //register waiter
-        const set = subWaiters.get(id) ?? new Set();
-        set.add(res);
-        subWaiters.set(id, set);
-
-        //safety: close after timeout
-        const t = setTimeout(() => {
-            set.delete(res);
-            res.json({status: "pending"});
-        },timeoutMs);
-
-        //if client disconnects
-        req.on("close", () => {
-            clearTimeout(t);
-            set.delete(res);
-        });
-    })
-    .all((req,res) => {
-        res.set('Allow', 'GET');
-        res.status(405).send("Method not allowed")
-    });
 
 module.exports = router;
