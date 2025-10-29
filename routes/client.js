@@ -5,7 +5,7 @@ const db = require('../db');
 
 const mailGun = require('../mailgun.js');
 const { signJWT, nowSec, verifyJWT } = require('../jwtHelpers.js');
-const {SignJWT, exportJWK, generateKeyPair, decodeProtectedHeader , importPKCS8} = require('jose');
+const {SignJWT, importPKCS8} = require('jose');
 const { readFileSync } = require('fs');
 
 const router = express.Router();
@@ -25,24 +25,37 @@ router.route('/device_auth')
 
         const deviceId = req.body['device_id'];
 
-        //check activations table
-        const deviceRow = await db('activations')
-            .where('device_id', deviceId)
+        const row = await db('users as u')
+            .join('activations as a', 'a.user_id', 'u.id')
+            .where('a.device_id', deviceId)
             .first();
-        
-        res.set('Content-Type', 'application/json');
-
-        if(!deviceRow) // this device needs to be linked
+    
+        if(!row) // this device needs to be linked
         {
+            console.log("no user id associated, returning");
             return res.status(200).json({
                 "status":"no_match",
                 "token":"null"
-            })
+            });
         }
-        deviceRow.valid = true;
 
-        if(deviceRow.valid) //this device is linked and license is valid ==> return success, status:ok, token: new jwt
+        const subscription = await db('subscriptions as s')
+            .where('s.user_id', row.user_id)
+            .andWhere('s.status', "on_trial")
+            .first();
+        
+        const result = await db('activations as a')
+        .where('a.user_id', row.user_id)
+        .count('* as count')
+        .first(); 
+
+        const activationCount = Number(result.count); // convert from string (SQLite)
+
+        console.log(subscription)
+        
+        if(subscription && activationCount <= subscription.seats) //this device is linked and license is valid ==> return success, status:ok, token: new jwt
         {
+            console.log("unlocking");
             const privatePem = readFileSync("keys/rsa-private.pem", "utf8");
             const kid = JSON.parse(readFileSync("keys/jwk.json", "utf8")).kid;
 
@@ -64,6 +77,7 @@ router.route('/device_auth')
         }
         else //this device is linked but license is not valid ==> return success + status:invalid_license, token: null
         {
+            console.log("not enough seats")
             return res.status(200).json({
                 "status":"invalid_license",
                 "token":"null"
@@ -96,8 +110,8 @@ router.route('/signup')
         const [id] = await db('magic').insert({
             token: jti, 
             expires_at: expiresAt,
+            email: email
         });
-        
 
         const token = await signJWT({aud: process.env.MAGIC_AUD, email:email,device_id:deviceId, jti, magic_id:id},
             `${process.env.MAGIC_TTL_SEC} seconds`
@@ -143,7 +157,7 @@ router.route('/activation/:id/await')
                 status = "expired";
             }
             console.log(`returning json: {status: ${status}}`);
-            return res.status(200).json({status: status});
+            return res.status(200).json({'status': status, 'id':row.user_id});
         }
 
         //register waiter
@@ -191,8 +205,8 @@ router.route('/verify')
             .first();
 
         if(!row) return res.status(400).send('Token not recognized.');
-        if(row.used_at) return res.status(400).send('Token already used.');
-        if(row.expires_at < nowSec()) return res.status(400).send("Token expired.");
+        //if(row.used_at) return res.status(400).send('Token already used.');
+        //if(row.expires_at < nowSec()) return res.status(400).send("Token expired.");
         
         //update used_at
         await db('magic')
@@ -234,8 +248,10 @@ router.route('/verify')
             //update the device id
             if(activationRow.device_id !== deviceId)
             {
+                console.log('updating device id');
                 await db('activations')
                 .where("user_id", userId)
+                .first()
                 .update({
                     device_id:deviceId
                 })

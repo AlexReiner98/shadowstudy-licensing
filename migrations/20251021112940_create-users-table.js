@@ -8,7 +8,7 @@ exports.up = function(knex) {
   //users table (contains emails that represent users, ties together activations, licenses and tokens)
   .createTable('users', tbl => {
     tbl.increments() // 'id' field
-    tbl.text('email',128)
+    tbl.text('email')
         .notNullable()
         .unique()
     tbl.timestamps(true,true)
@@ -22,7 +22,6 @@ exports.up = function(knex) {
     tbl.integer('seats')
         .notNullable()
         .defaultTo(1)
-    
     //foreign key to users
     tbl.integer('user_id') 
         .unsigned()
@@ -39,7 +38,6 @@ exports.up = function(knex) {
     tbl.text('device_id')
         .notNullable()
         .unique()
-    
     // foreign key to users
     tbl.integer('user_id') 
         .unsigned()
@@ -61,6 +59,8 @@ exports.up = function(knex) {
     tbl.text('status')
       .notNullable()
       .defaultTo('pending')
+    tbl.text('email')
+      .notNullable()
   })
 };
 
